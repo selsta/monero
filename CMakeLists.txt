@@ -164,6 +164,37 @@ function (monero_add_minimal_executable name)
     monero_set_target_no_relink( ${name} )
 endfunction()
 
+function(test_undefined_symbols)
+  set(TEST_PROJECT "${CMAKE_BINARY_DIR}/${CMAKE_FILES_DIRECTORY}/CMakeTmp/test_project")
+  file(REMOVE_RECURSE "${TEST_PROJECT}")
+  file(MAKE_DIRECTORY "${TEST_PROJECT}")
+  file(WRITE "${TEST_PROJECT}/CMakeLists.txt"
+    [=[
+cmake_minimum_required(VERSION 3.1)
+project(test)
+file(WRITE "${CMAKE_SOURCE_DIR}/incorrect_source.cpp" "void undefined_symbol(); void symbol() { undefined_symbol(); }")
+add_library(l0 SHARED incorrect_source.cpp)
+add_library(l1 MODULE incorrect_source.cpp)
+add_library(l2 STATIC incorrect_source.cpp)
+add_library(l3 OBJECT incorrect_source.cpp)
+]=]
+  )
+  try_compile(SUCCESS "${TEST_PROJECT}/build" "${TEST_PROJECT}" test
+    CMAKE_FLAGS
+    "-DCMAKE_SHARED_LINKER_FLAGS=${CMAKE_SHARED_LINKER_FLAGS}"
+    "-DCMAKE_MODULE_LINKER_FLAGS=${CMAKE_MODULE_LINKER_FLAGS}"
+  )
+  if (${SUCCESS})
+    message(FATAL_ERROR "Undefined symbols are expected to be forbidden by default")
+  endif()
+  file(REMOVE_RECURSE "${TEST_PROJECT}")
+endfunction()
+
+add_linker_flag_if_supported(-Wl,--no-undefined CMAKE_SHARED_LINKER_FLAGS)
+add_linker_flag_if_supported(-Wl,--no-undefined CMAKE_MODULE_LINKER_FLAGS)
+test_undefined_symbols()
+
+
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
   message(STATUS "Setting default build type: ${CMAKE_BUILD_TYPE}")
