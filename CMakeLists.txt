@@ -218,6 +218,7 @@ if (NOT ARCH OR ARCH STREQUAL "" OR ARCH STREQUAL "native" OR ARCH STREQUAL "def
 else()
   set(ARCH_ID "${ARCH}")
 endif()
+string(TOLOWER ${ARCH_ID} ARCH_ID)
 endif()
 string(TOLOWER "${ARCH_ID}" ARM_ID)
 string(SUBSTRING "${ARM_ID}" 0 3 ARM_TEST)
