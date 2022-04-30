@@ -141,12 +141,7 @@ Wallet *WalletManagerImpl::createWalletFromDevice(const std::string &path,
     if (listener){
         listener->onSetWallet(wallet);
     }
-
-    if(restoreHeight > 0){
-        wallet->setRefreshFromBlockHeight(restoreHeight);
-    } else {
-        wallet->setRefreshFromBlockHeight(wallet->estimateBlockChainHeight());
-    }
+    wallet->setRefreshFromBlockHeight(restoreHeight);
     auto lookahead = tools::parse_subaddress_lookahead(subaddressLookahead);
     if (lookahead)
     {
