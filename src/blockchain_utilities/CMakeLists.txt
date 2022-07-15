@@ -144,6 +144,7 @@ target_link_libraries(blockchain_import
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -171,6 +172,7 @@ target_link_libraries(blockchain_export
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -193,6 +195,7 @@ target_link_libraries(blockchain_blackball
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -236,6 +239,7 @@ target_link_libraries(blockchain_ancestry
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -257,6 +261,7 @@ target_link_libraries(blockchain_depth
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -278,6 +283,7 @@ target_link_libraries(blockchain_stats
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -300,6 +306,7 @@ target_link_libraries(blockchain_prune_known_spent_data
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -327,6 +334,7 @@ target_link_libraries(blockchain_prune
     version
     epee
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}

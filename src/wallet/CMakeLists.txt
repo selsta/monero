@@ -60,6 +60,7 @@ target_link_libraries(wallet
     ${Boost_CHRONO_LIBRARY}
     ${Boost_SERIALIZATION_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${Boost_REGEX_LIBRARY}
@@ -95,6 +96,7 @@ if(NOT IOS)
       ${Boost_CHRONO_LIBRARY}
       ${Boost_PROGRAM_OPTIONS_LIBRARY}
       ${Boost_FILESYSTEM_LIBRARY}
+      ${Boost_ATOMIC_LIBRARY}
       ${Boost_THREAD_LIBRARY}
       ${CMAKE_THREAD_LIBS_INIT}
       ${EXTRA_LIBRARIES})

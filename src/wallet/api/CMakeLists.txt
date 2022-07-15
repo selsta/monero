@@ -75,10 +75,13 @@ target_link_libraries(wallet_api
     ${ICU_LIBRARIES}
     ${Boost_SERIALIZATION_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${CMAKE_THREAD_LIBS_INIT}
     ${Boost_REGEX_LIBRARY}
+    ${Boost_PROGRAM_OPTIONS_LIBRARY}
+    ${Boost_DATE_TIME_LIBRARY}
   PRIVATE
     ${EXTRA_LIBRARIES})
 

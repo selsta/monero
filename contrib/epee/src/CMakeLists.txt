@@ -67,6 +67,7 @@ target_link_libraries(epee
     easylogging
     ${Boost_CHRONO_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${Boost_REGEX_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}

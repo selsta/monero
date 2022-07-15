@@ -48,6 +48,7 @@ target_link_libraries(libwallet_api_tests
     ${Boost_CHRONO_LIBRARY}
     ${Boost_SERIALIZATION_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_LOCALE_LIBRARY}

@@ -60,6 +60,7 @@ target_link_libraries(trezor_tests
     daemon_rpc_server
     ${Boost_CHRONO_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
+    ${Boost_ATOMIC_LIBRARY}
     ${Boost_PROGRAM_OPTIONS_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${ZMQ_LIB}
