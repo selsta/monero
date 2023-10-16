@@ -1,9 +1,6 @@
 name: ci/gh-actions/gitian
 
-on:
-  push:
-    tags:
-      - '*'
+on: push
 
 jobs:
   build-gitian:
@@ -14,30 +11,22 @@ jobs:
         operating-system:
           - name: "Linux"
             option: "l"
-          - name: "Windows"
-            option: "w"
-          - name: "Android"
-            option: "a"
-          - name: "FreeBSD"
-            option: "f"
-          - name: "macOS"
-            option: "m"
     name: ${{ matrix.operating-system.name }}
     steps:
     - name: prepare
       run: |
         sudo apt update
-        curl -O https://raw.githubusercontent.com/monero-project/monero/${{ github.ref_name }}/contrib/gitian/gitian-build.py
+        curl -O https://raw.githubusercontent.com/monero-project/monero/v0.18.3.1/contrib/gitian/gitian-build.py
         chmod +x gitian-build.py
     - name: setup
       run: |
-        ./gitian-build.py --setup --docker github-actions ${{ github.ref_name }}
+        ./gitian-build.py --setup --docker --url https://github.com/selsta/monero github-actions riscv-gitian
     - name: build
       run: |
-        ./gitian-build.py --docker --detach-sign --no-commit --build -j 3 -o ${{ matrix.operating-system.option }} github-actions ${{ github.ref_name }}
+        ./gitian-build.py --docker --detach-sign --no-commit --build -j 3 -o ${{ matrix.operating-system.option }} --url https://github.com/selsta/monero github-actions riscv-gitian
     - name: post build
       run: |
-        cd out/${{ github.ref_name }}
+        cd out/riscv-gitian
         shasum -a256 *
         echo \`\`\` >> $GITHUB_STEP_SUMMARY
         shasum -a256 * >> $GITHUB_STEP_SUMMARY
@@ -46,4 +35,4 @@ jobs:
       with:
         name: ${{ matrix.operating-system.name }}
         path: |
-          out/${{ github.ref_name }}/*
+          out/riscv-gitian/*
