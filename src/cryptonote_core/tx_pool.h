@@ -29,7 +29,6 @@
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
 #pragma once
-#include "common/recursive_shared_mutex.h"
 #include "include_base_utils.h"
 
 #include <atomic>
@@ -44,6 +43,7 @@
 #include "span.h"
 #include "string_tools.h"
 #include "syncobj.h"
+#include "common/recursive_shared_mutex.h"
 #include "math_helper.h"
 #include "cryptonote_basic/cryptonote_basic_impl.h"
 #include "cryptonote_basic/verification_context.h"
@@ -604,21 +604,6 @@ namespace cryptonote
      *  block again.
      */
     typedef std::unordered_map<crypto::key_image, std::unordered_set<crypto::hash>> key_images_container;
-
-public:
-
-    bool start_write() {
-      return m_transactions_lock.start_write();
-    }
-    void end_write() {
-      m_transactions_lock.end_write();      
-    }
-    void start_read() {
-      m_transactions_lock.start_read();
-    }
-    void end_read() {
-      m_transactions_lock.end_read();
-    }
 
 #if defined(DEBUG_CREATE_BLOCK_TEMPLATE)
 public:

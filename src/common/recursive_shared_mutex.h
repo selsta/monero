@@ -56,11 +56,6 @@ public:
     recursive_shared_mutex& operator=(const recursive_shared_mutex&) = delete;
     recursive_shared_mutex& operator=(recursive_shared_mutex&&)      = delete;
 
-    bool start_read();
-    void end_read();
-    bool start_write();
-    void end_write();
-
     // Lockable
     void lock();
     bool try_lock();

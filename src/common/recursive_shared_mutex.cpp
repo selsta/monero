@@ -122,21 +122,4 @@ void recursive_shared_mutex::unlock_shared()
     }
 }
 
-bool recursive_shared_mutex::start_read() {
-    this->lock_shared();
-    return true;
-}
-
-void recursive_shared_mutex::end_read() {
-    this->unlock_shared();
-}
-
-bool recursive_shared_mutex::start_write() {
-    this->lock();
-    return true;
-}
-
-void recursive_shared_mutex::end_write() {
-    this->unlock();
-}
 } // namespace tools

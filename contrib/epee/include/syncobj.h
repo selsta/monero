@@ -160,28 +160,26 @@ namespace epee
     }
   };
 
-#define RWLOCK(lock)                                                         \
-  bool rw_release_required##lock = lock.start_write();                       \
-  epee::misc_utils::auto_scope_leave_caller scope_exit_handler##lock =       \
-      epee::misc_utils::create_scope_leave_handler([&]() {                   \
-        lock.end_write();                                                    \
-      });
-
-
-#define RLOCK(lock)                                                          \
-    bool r_release_required##lock = lock.start_read();                       \
-    epee::misc_utils::auto_scope_leave_caller scope_exit_handler##lock =     \
-        epee::misc_utils::create_scope_leave_handler([&]() {                 \
-          lock.end_read();                                                   \
-        });
-
-
 #define  CRITICAL_REGION_LOCAL(x) {} epee::critical_region_t<decltype(x)>   critical_region_var(x)
 #define  CRITICAL_REGION_BEGIN(x) { boost::this_thread::sleep_for(boost::chrono::milliseconds(epee::debug::g_test_dbg_lock_sleep())); epee::critical_region_t<decltype(x)>   critical_region_var(x)
 #define  CRITICAL_REGION_LOCAL1(x) {boost::this_thread::sleep_for(boost::chrono::milliseconds(epee::debug::g_test_dbg_lock_sleep()));} epee::critical_region_t<decltype(x)>   critical_region_var1(x)
 #define  CRITICAL_REGION_BEGIN1(x) {  boost::this_thread::sleep_for(boost::chrono::milliseconds(epee::debug::g_test_dbg_lock_sleep())); epee::critical_region_t<decltype(x)>   critical_region_var1(x)
 
 #define  CRITICAL_REGION_END() }
+
+#define RWLOCK(m_lock)                                                           \
+    m_lock.lock();                                                               \
+    epee::misc_utils::auto_scope_leave_caller scope_exit_handler##m_lock =       \
+        epee::misc_utils::create_scope_leave_handler([&]() {                     \
+          m_lock.unlock();                                                       \
+        });
+
+#define RLOCK(m_lock)                                                            \
+    m_lock.lock_shared();                                                        \
+    epee::misc_utils::auto_scope_leave_caller scope_exit_handler##m_lock =       \
+        epee::misc_utils::create_scope_leave_handler([&]() {                     \
+          m_lock.unlock_shared();                                                \
+        });
 
 }
 

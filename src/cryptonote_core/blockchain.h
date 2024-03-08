@@ -49,6 +49,7 @@
 
 #include "span.h"
 #include "syncobj.h"
+#include "common/recursive_shared_mutex.h"
 #include "string_tools.h"
 #include "rolling_median.h"
 #include "cryptonote_basic/cryptonote_basic.h"
@@ -112,23 +113,6 @@ namespace cryptonote
       difficulty_type cumulative_difficulty; //!< the accumulated difficulty after that block
       uint64_t already_generated_coins; //!< the total coins minted after that block
     };
-
-    /**
-     * @brief serialize the access to blockchain data
-    */
-   
-    bool start_write() {
-      return m_blockchain_transaction.start_write();
-    }
-    void end_write() {
-      m_blockchain_transaction.end_write();      
-    }
-    void start_read() {
-      m_blockchain_transaction.start_read();
-    }
-    void end_read() {
-      m_blockchain_transaction.end_read();
-    }
 
     /**
      * @brief Blockchain destructor
@@ -1157,7 +1141,7 @@ namespace cryptonote
 
     tx_memory_pool& m_tx_pool;
 
-    mutable tools::recursive_shared_mutex m_blockchain_transaction;
+    mutable tools::recursive_shared_mutex m_blockchain_lock;
 
     // main chain
     size_t m_current_block_cumul_weight_limit;

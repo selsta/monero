@@ -77,7 +77,7 @@ void reader() {
   size_t reading_cycles = d(rng);
 
   d = std::uniform_int_distribution<std::mt19937::result_type>(reading_step_duration_min, reading_step_duration_max);  
-  bool release_required = main_lock.start_read();
+  main_lock.lock_shared();
   for(int i = 0; i < reading_cycles; i++) {
     boost::this_thread::sleep_for(boost::chrono::milliseconds(d(rng)));
   }
@@ -85,7 +85,7 @@ void reader() {
   if (recurse) {
     reader();
   }  
-  if (release_required) main_lock.end_read();
+  main_lock.unlock_shared();
 }
 
 void writer() {
@@ -95,7 +95,7 @@ void writer() {
   size_t writing_cycles = d(rng);
 
   d = std::uniform_int_distribution<std::mt19937::result_type>(writing_step_duration_min, writing_step_duration_max);  
-  bool release_required = main_lock.start_write();
+  main_lock.lock();
   for(int i = 0; i < writing_cycles; i++) {
     boost::this_thread::sleep_for(boost::chrono::milliseconds(d(rng)));
   }
@@ -109,7 +109,7 @@ void writer() {
       reader();
     }
   }  
-  if (release_required) main_lock.end_write();
+  main_lock.unlock();
 }
 
 void RUN_TEST() {
@@ -136,42 +136,42 @@ void RUN_TEST() {
   });
 }
 
-TEST(reader_writer_lock_tests, test_3)
+TEST(reader_writer_lock_deadlock_tests, test_3)
 {
   calculate_parameters(3);
   for(int i = 0; i < test_iteration; ++i)
     RUN_TEST();
 }
 
-TEST(reader_writer_lock_tests, test_5)
+TEST(reader_writer_lock_deadlock_tests, test_5)
 {
   calculate_parameters(5);
   for(int i = 0; i < test_iteration; ++i) 
     RUN_TEST();
 }
 
-TEST(reader_writer_lock_tests, test_10)
+TEST(reader_writer_lock_deadlock_tests, test_10)
 {
   calculate_parameters(10);
   for(int i = 0; i < test_iteration; ++i)
     RUN_TEST();
 }
 
-TEST(reader_writer_lock_tests, test_100)
+TEST(reader_writer_lock_deadlock_tests, test_100)
 {
   calculate_parameters(100);
   for(int i = 0; i < test_iteration; ++i)
     RUN_TEST();
 }
 
-TEST(reader_writer_lock_tests, test_500)
+TEST(reader_writer_lock_deadlock_tests, test_500)
 {
   calculate_parameters(500);
   for(int i = 0; i < test_iteration; ++i)
     RUN_TEST();
 }
 
-TEST(reader_writer_lock_tests, test_1000)
+TEST(reader_writer_lock_deadlock_tests, test_1000)
 {
   calculate_parameters(1000);
   for(int i = 0; i < test_iteration; ++i)
