@@ -30,12 +30,23 @@
 #ifndef __WINH_OBJ_H__
 #define __WINH_OBJ_H__
 
+#include <algorithm>
 #include <boost/chrono/duration.hpp>
+#include <boost/functional/hash/hash.hpp>
 #include <boost/thread/condition_variable.hpp>
+#include <boost/thread/detail/thread.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/recursive_mutex.hpp>
 #include <boost/thread/thread.hpp>
+#include <cstdint>
+#include <queue>
+#include <set>
+#include <utility>
+#include <functional>
+#include <vector>
+#include "misc_log_ex.h"
+#include "misc_language.h"
 
 namespace epee
 {
@@ -148,6 +159,21 @@ namespace epee
       }
     }
   };
+
+#define RWLOCK(lock)                                                         \
+  bool rw_release_required##lock = lock.start_write();                       \
+  epee::misc_utils::auto_scope_leave_caller scope_exit_handler##lock =       \
+      epee::misc_utils::create_scope_leave_handler([&]() {                   \
+        lock.end_write();                                                    \
+      });
+
+
+#define RLOCK(lock)                                                          \
+    bool r_release_required##lock = lock.start_read();                       \
+    epee::misc_utils::auto_scope_leave_caller scope_exit_handler##lock =     \
+        epee::misc_utils::create_scope_leave_handler([&]() {                 \
+          lock.end_read();                                                   \
+        });
 
 
 #define  CRITICAL_REGION_LOCAL(x) {} epee::critical_region_t<decltype(x)>   critical_region_var(x)

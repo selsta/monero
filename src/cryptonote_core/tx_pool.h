@@ -29,6 +29,7 @@
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
 #pragma once
+#include "common/recursive_shared_mutex.h"
 #include "include_base_utils.h"
 
 #include <atomic>
@@ -604,10 +605,25 @@ namespace cryptonote
      */
     typedef std::unordered_map<crypto::key_image, std::unordered_set<crypto::hash>> key_images_container;
 
+public:
+
+    bool start_write() {
+      return m_transactions_lock.start_write();
+    }
+    void end_write() {
+      m_transactions_lock.end_write();      
+    }
+    void start_read() {
+      m_transactions_lock.start_read();
+    }
+    void end_read() {
+      m_transactions_lock.end_read();
+    }
+
 #if defined(DEBUG_CREATE_BLOCK_TEMPLATE)
 public:
 #endif
-    mutable epee::critical_section m_transactions_lock;  //!< lock for the pool
+      mutable tools::recursive_shared_mutex m_transactions_lock;
 #if defined(DEBUG_CREATE_BLOCK_TEMPLATE)
 private:
 #endif
