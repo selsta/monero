@@ -4,14 +4,29 @@ on:
   schedule:
     - cron: '0 0 1 1 *'
 jobs:
-  createPullRequest:
+  send-pull-requests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Make changes to pull request
-        continue-on-error: true
-        shell: bash
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Send pull-request
         run: |
+          LATEST_TAG=$(git describe --tags --always --abbrev=0)
+          REPOSITORY="some-user/some-repository"
+          FOLDER="bin/$REPOSITORY"
+          BRANCH_NAME="chore-update-scripts-to-$LATEST_TAG"
+
+          # Clone the remote repository 
+          git clone https://github.com/selsta/monero.git
+
+          # Setup the committers identity.
+          git config user.email "copyCat@cat.com"
+          git config user.name "copyCat"
+
+          # Create a new feature branch for the changes.
+          git checkout -b external_bump_copyright
+
+          # Run da script.
           year=$(date +%Y)
           echo "YEAR=$(echo $year)" >> $GITHUB_ENV
           find . -print0 | while IFS= read -r -d '' file
@@ -40,18 +55,21 @@ jobs:
               fi
               sed -i "s|${line}|${repl}|g" $file
           done
-      - name: Create Pull Request
-        id: cpr
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Copyright: Update to ${{ env.YEAR }}"
-          committer: GitHub <noreply@github.com>
-          author: copyCat <copy@Cat.com>
-          signoff: false
-          branch: bump-copyright-year
-          delete-branch: true
-          title: "Copyright: Update to ${{ env.YEAR }}"
-          body: |
-            Happy new year!
-          draft: false
+
+          # Commit the changes and push the feature branch to origin
+          git add .
+          git commit -m "chore: update scripts to $LATEST_TAG"
+          git push origin external_bump_copyright
+
+          # Store the PAT in a file that can be accessed by the
+          # GitHub CLI.
+          echo "${{ secrets.ACCESS_TOKEN }}" > token.txt
+
+          # Authorize GitHub CLI for the current repository and
+          # create a pull-requests containing the updates.
+          gh auth login --with-token < token.txt
+          gh pr create \
+            --body "Happy new year!" \
+            --title "workflows: test external pull request" \
+            --head "external_bump_copyright" \
+            --base "main"
