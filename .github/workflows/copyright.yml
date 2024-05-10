@@ -26,9 +26,10 @@ jobs:
               fromTo=$(grep -o "[0-9]\{4\}-[0-9]\{4\}" <<< $line || true)
               if [[ ! -z $fromTo ]]; then
                   # string contains "FROM-TO"
-                  # we need to replace FROM with current year
+                  # we need to replace TO with current year
                   to=$(awk '{split($0, array, "-"); print array[2]}' <<< ${fromTo})
-                  repl=${line/"$to"/"$year"}
+                  from=$(awk '{split($0, array, "-"); print array[1]}' <<< ${fromTo})
+                  repl="${line/$from-$to/$from-$year}"
               else
                   # we only have a FROM year
                   # find occurance of 4 digits
