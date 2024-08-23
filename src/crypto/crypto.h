@@ -314,9 +314,6 @@ namespace crypto {
   inline std::ostream &operator <<(std::ostream &o, const crypto::public_key &v) {
     epee::to_hex::formatted(o, epee::as_byte_span(v)); return o;
   }
-  inline std::ostream &operator <<(std::ostream &o, const crypto::secret_key &v) {
-    epee::to_hex::formatted(o, epee::as_byte_span(v)); return o;
-  }
   inline std::ostream &operator <<(std::ostream &o, const crypto::key_derivation &v) {
     epee::to_hex::formatted(o, epee::as_byte_span(v)); return o;
   }
