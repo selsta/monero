@@ -1265,12 +1265,16 @@ namespace cryptonote
     }
     else
     {
-      // we accept pruned data, check that if we got some, then no weights are zero
-      for (block_complete_entry& block_entry: arg.blocks)
+      // Weights used for adaptive sync sizing must match the prevalidated chain data.
+      for (size_t i = 0; i < arg.blocks.size(); ++i)
       {
-        if (block_entry.block_weight == 0 && block_entry.pruned)
+        const block_complete_entry &block_entry = arg.blocks[i];
+        if (!block_entry.pruned)
+          continue;
+        const uint64_t expected_weight = m_core.get_prevalidated_block_weight(start_height + i);
+        if (expected_weight == 0 || block_entry.block_weight != expected_weight)
         {
-          MERROR(context << "returned at least one pruned block with 0 weight, dropping connection");
+          MERROR(context << "returned an incorrect weight for pruned block at height " << start_height + i << ", dropping connection");
           drop_connection(context, false, false);
           ++m_sync_bad_spans_downloaded;
           return 1;
@@ -2174,7 +2178,8 @@ skip:
       NOTIFY_REQUEST_GET_OBJECTS::request req;
       bool is_next = false;
       size_t count = 0;
-      const size_t l_m_bss = m_core.get_block_sync_size(m_core.get_current_blockchain_height(), max_average_of_blocksize_in_queue());
+      const uint64_t max_average = m_core.is_block_sync_size_adaptive() ? max_average_of_blocksize_in_queue() : 0;
+      const size_t l_m_bss = m_core.get_block_sync_size(m_core.get_current_blockchain_height(), max_average);
       std::pair<uint64_t, uint64_t> span = std::make_pair(0, 0);
       if (force_next_span)
       {

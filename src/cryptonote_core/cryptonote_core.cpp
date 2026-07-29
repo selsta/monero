@@ -951,7 +951,8 @@ namespace cryptonote
              << " bytes and the max average blocksize in the queue is " << max_average_of_blocksize_in_queue << " bytes");
       uint64_t projected_blocksize = std::max(max_average_of_blocksize_in_queue, max_weight);
       uint64_t blocks_huge_threshold = (batch_max_weight / 2);
-      if ((projected_blocksize * BLOCKS_MAX_WINDOW) < batch_max_weight)
+      // batch_max_weight is positive; compare without overflowing the projected batch weight.
+      if (projected_blocksize <= (batch_max_weight - 1) / BLOCKS_MAX_WINDOW)
       {
         res = BLOCKS_MAX_WINDOW;
         MINFO("blocks are tiny, " << projected_blocksize << " bytes, sync " << res << " blocks in next batch");
@@ -1928,6 +1929,11 @@ namespace cryptonote
   bool core::has_block_weights(uint64_t height, uint64_t nblocks) const
   {
     return get_blockchain_storage().has_block_weights(height, nblocks);
+  }
+  //-----------------------------------------------------------------------------------------------
+  uint64_t core::get_prevalidated_block_weight(uint64_t height) const
+  {
+    return get_blockchain_storage().get_prevalidated_block_weight(height);
   }
   //-----------------------------------------------------------------------------------------------
   std::time_t core::get_start_time() const

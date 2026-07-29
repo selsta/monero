@@ -783,6 +783,7 @@ namespace cryptonote
       * @return the number of blocks to sync in one go
       */
      size_t get_block_sync_size(uint64_t height, const uint64_t max_average_of_blocksize_in_queue = 0) const;
+     bool is_block_sync_size_adaptive() const { return block_sync_size == 0; }
 
      /**
       * @brief get the sum of coinbase tx amounts between blocks
@@ -870,6 +871,12 @@ namespace cryptonote
       * @brief checks whether block weights are known for the given range
       */
      bool has_block_weights(uint64_t height, uint64_t nblocks) const;
+
+     /**
+      * @brief returns the prevalidated block weight
+      * @return the prevalidated weight, or zero if unavailable
+      */
+     uint64_t get_prevalidated_block_weight(uint64_t height) const;
 
      /**
       * @brief flushes the invalid block cache
