@@ -1372,9 +1372,11 @@ private:
     std::vector<std::pair<uint64_t, uint64_t>> estimate_backlog(const std::vector<std::pair<double, double>> &fee_levels);
     std::vector<std::pair<uint64_t, uint64_t>> estimate_backlog(uint64_t min_tx_weight, uint64_t max_tx_weight, const std::vector<uint64_t> &fees);
 
-    static uint64_t estimate_fee(bool use_per_byte_fee, bool use_rct, int n_inputs, int mixin, int n_outputs, size_t extra_size, bool bulletproof, bool clsag, bool bulletproof_plus, bool use_view_tags, uint64_t base_fee, uint64_t fee_quantization_mask);
+    static constexpr uint64_t MAX_UNTRUSTED_FEE_PER_BYTE = 240000000;
+    static constexpr uint64_t MAX_UNTRUSTED_FEE_PER_KB = MAX_UNTRUSTED_FEE_PER_BYTE * 1024;
+    static uint64_t estimate_fee(bool use_per_byte_fee, bool use_rct, int n_inputs, int mixin, int n_outputs, size_t extra_size, bool bulletproof, bool clsag, bool bulletproof_plus, bool use_view_tags, uint64_t base_fee, uint64_t fee_quantization_mask, bool trusted_daemon = false);
     uint64_t get_fee_multiplier(fee_priority priority, fee_algorithm fee_algorithm = fee_algorithm::Unset);
-    uint64_t get_base_fee(fee_priority priority);
+    uint64_t get_base_fee(fee_priority priority, boost::optional<uint64_t> max_fee = boost::none);
     uint64_t get_base_fee();
     uint64_t get_fee_quantization_mask();
     uint64_t get_min_ring_size();
@@ -1388,7 +1390,7 @@ private:
       after casting from a type (PendingTransaction::FeePriority) which I don't want to touch.
     */
     fee_priority adjust_priority(uint32_t priority);
-    uint64_t get_base_fee(uint32_t);
+    uint64_t get_base_fee(uint32_t priority, boost::optional<uint64_t> max_fee = boost::none);
 
     bool is_unattended() const { return m_unattended; }
 
