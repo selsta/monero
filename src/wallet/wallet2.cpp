@@ -15587,6 +15587,19 @@ std::vector<cryptonote::public_node> wallet2::get_public_nodes(bool white_only)
   nodes = res.white;
   nodes.reserve(nodes.size() + res.gray.size());
   std::copy(res.gray.begin(), res.gray.end(), std::back_inserter(nodes));
+  for (auto &node: nodes)
+  {
+    THROW_WALLET_EXCEPTION_IF(node.rpc_port == 0,
+        error::wallet_internal_error, "Invalid public node address from daemon");
+    auto address = net::get_network_address(node.host, node.rpc_port);
+    boost::system::error_code ec;
+    const auto ipv6 = boost::asio::ip::make_address_v6(node.host, ec);
+    if (!ec)
+      address = epee::net_utils::network_address{epee::net_utils::ipv6_network_address{ipv6, node.rpc_port}};
+    THROW_WALLET_EXCEPTION_IF(!address || (node.host != address->host_str() && node.host != address->str()),
+        error::wallet_internal_error, "Invalid public node address from daemon");
+    node.host = address->host_str();
+  }
   return nodes;
 }
 //----------------------------------------------------------------------------------------------------
