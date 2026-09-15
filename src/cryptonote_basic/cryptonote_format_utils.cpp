@@ -802,6 +802,20 @@ namespace cryptonote
     return get_tx_pub_key_from_extra(tx.extra, pk_index);
   }
   //---------------------------------------------------------------
+  crypto::public_key get_tx_pub_key_for_derivation(const crypto::public_key& tx_pub_key)
+  {
+    // Gets untorsioned tx_pub_key
+    // tx_pub_key = 8 * (1/8) * tx_pub_key_original
+    crypto::key_derivation derivation;
+    if (!crypto::generate_key_derivation(tx_pub_key, rct::rct2sk(rct::INV_EIGHT), derivation))
+      return rct::rct2pk(rct::identity());
+
+    crypto::public_key result;
+    static_assert(sizeof(result) == sizeof(derivation), "Mismatched public key and derivation sizes");
+    memcpy(&result, &derivation, sizeof(result));
+    return result;
+  }
+  //---------------------------------------------------------------
   bool add_tx_pub_key_to_extra(transaction& tx, const crypto::public_key& tx_pub_key)
   {
     return add_tx_pub_key_to_extra(tx.extra, tx_pub_key);
