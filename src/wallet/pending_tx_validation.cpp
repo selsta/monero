@@ -872,6 +872,34 @@ void check_consistent_ins_outs(const std::vector<wallet2::pending_tx> &txes)
     check_consistent_ins_outs_impl(txes);
 }
 //-------------------------------------------------------------------------------------------------------------------
+void sanity_check_unsigned_tx_set(const std::vector<wallet2::tx_construction_data> &txes,
+    const cryptonote::account_keys &account_keys,
+    const std::unordered_map<crypto::public_key, cryptonote::subaddress_index> &subaddresses)
+{
+    check_consistent_ins_outs(txes);
+
+    for (const auto &tx: txes)
+    {
+        const auto &change = tx.change_dts;
+        const bool pays_change = std::any_of(tx.splitted_dsts.begin(), tx.splitted_dsts.end(),
+            [&change](const cryptonote::tx_destination_entry &dest) {
+                return dest.amount > 0 && dest.addr == change.addr;
+            });
+        // Zero-valued dummy change outputs deliberately use an unrelated address.
+        if (change.amount == 0 && !pays_change)
+            continue;
+
+        if (cryptonote::sanity_check_change_address(change.addr, subaddresses, account_keys))
+            continue;
+
+        // Review precedes importing the embedded outputs, which may expand the
+        // cold wallet's subaddress cache to include the sending account.
+        const auto expected_change = account_keys.get_device().get_subaddress(account_keys, {tx.subaddr_account, 0});
+        CHECK_AND_ASSERT_THROW_MES(change.addr == expected_change,
+            "sanity_check_unsigned_tx_set: change address does not belong to the sender account");
+    }
+}
+//-------------------------------------------------------------------------------------------------------------------
 void sanity_check_pending_tx_set(const std::vector<wallet2::pending_tx> &ptxs,
     const cryptonote::network_type nettype,
     const cryptonote::account_keys &account_keys,

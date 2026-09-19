@@ -55,6 +55,10 @@ namespace wallet
 // Use `sanity_check_pending_tx` for full validation of individual partial txs.
 void check_consistent_ins_outs(const std::vector<wallet2::tx_construction_data> &txes);
 void check_consistent_ins_outs(const std::vector<wallet2::pending_tx> &txes);
+// For unsigned transaction review before importing embedded outputs.
+void sanity_check_unsigned_tx_set(const std::vector<wallet2::tx_construction_data> &txes,
+    const cryptonote::account_keys &account_keys,
+    const std::unordered_map<crypto::public_key, cryptonote::subaddress_index> &subaddresses);
 /**
  * brief: sanity_check_pending_tx - validate `pending_tx` consistency with itself and with with `transfer_details`
  *        Assumes `ptx` version is >= v16.
