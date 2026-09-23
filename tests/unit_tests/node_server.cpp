@@ -214,6 +214,31 @@ namespace
   }
 }
 
+TEST(cryptonote_protocol_handler, pending_request_timeout_grace)
+{
+  test_core core;
+  known_top_test_p2p p2p;
+  cryptonote::t_cryptonote_protocol_handler<test_core> handler{core, &p2p};
+  cryptonote::cryptonote_connection_context context;
+  constexpr auto response = cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::ID;
+  context.m_state = cryptonote::cryptonote_connection_context::state_synchronizing;
+  context.m_expect_response = response;
+  context.m_last_request_time = boost::posix_time::microsec_clock::universal_time() - boost::posix_time::minutes(1);
+  const auto timeout = [&] {
+    ++context.m_callback_request_count;
+    context.m_idle_peer_notification = true;
+    return handler.on_callback(context);
+  };
+
+  ASSERT_TRUE(timeout());
+  ASSERT_FALSE(context.m_last_request_timeout.is_not_a_date_time());
+  EXPECT_EQ(context.m_expect_response, response);
+  EXPECT_EQ(context.m_score, 0);
+  context.m_last_request_timeout = context.m_last_request_time;
+  EXPECT_FALSE(timeout());
+  EXPECT_EQ(p2p.fail_score, 5u);
+}
+
 TEST(cryptonote_protocol_handler, known_top_height_matches_main_chain)
 {
   known_top_test_core core;
