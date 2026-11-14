@@ -1,0 +1,281 @@
+name: ci/file-io-regression
+
+on:
+  push:
+    branches: ['tmp/truncate-regression-ci']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: file-io-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC release
+            id: linux-gcc
+            os: ubuntu-24.04
+            shell: bash
+            build_type: Release
+            sanitize: 'OFF'
+            functional: true
+            large_file: true
+            core: true
+          - name: Linux Clang ASan and UBSan
+            id: linux-sanitizers
+            os: ubuntu-24.04
+            shell: bash
+            build_type: RelWithDebInfo
+            sanitize: 'ON'
+            functional: false
+            large_file: false
+            core: false
+          - name: macOS ARM64 release
+            id: macos-arm64
+            os: macos-15
+            shell: bash
+            build_type: Release
+            sanitize: 'OFF'
+            functional: true
+            large_file: false # The standard ARM runner only has 7 GiB of RAM.
+            core: false
+          - name: macOS Intel release
+            id: macos-intel
+            os: macos-15-intel
+            shell: bash
+            build_type: Release
+            sanitize: 'OFF'
+            functional: true
+            large_file: true
+            core: false
+          - name: Windows UCRT64 release
+            id: windows-release
+            os: windows-2022
+            shell: 'msys2 {0}'
+            build_type: Release
+            sanitize: 'OFF'
+            functional: false
+            large_file: true
+            core: false
+          - name: Windows UCRT64 debug
+            id: windows-debug
+            os: windows-2022
+            shell: 'msys2 {0}'
+            build_type: Debug
+            sanitize: 'OFF'
+            functional: false
+            large_file: false
+            core: false
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 1G
+      # Make sanitizer errors fail the job, including undefined behavior.
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake ninja-build pkg-config \
+            libboost-all-dev libunbound-dev libunwind8-dev libssl-dev libzmq3-dev \
+            libsodium-dev libhidapi-dev libusb-1.0-0-dev libprotobuf-dev \
+            protobuf-compiler ccache python3-venv
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install cmake ninja boost hidapi openssl@3 zeromq unbound \
+            libsodium libusb protobuf ccache pkgconf
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          # Required by node_server.bind_same_p2p_port (see node_server.cpp).
+          sudo ifconfig lo0 alias 127.0.0.2
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          pacboy: >-
+            toolchain:p cmake:p ninja:p ccache:p boost:p openssl:p zeromq:p
+            libsodium:p hidapi:p protobuf:p libusb:p unbound:p python:p git:p
+
+      - name: Install Python test dependencies
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/monero-test-python"
+          "$RUNNER_TEMP/monero-test-python/bin/python" -m pip install requests psutil monotonic pyzmq deepdiff
+          echo "MONERO_TEST_PYTHON=$RUNNER_TEMP/monero-test-python/bin/python" >> "$GITHUB_ENV"
+
+      - name: Select native Windows Python
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          echo "MONERO_TEST_PYTHON=$(cygpath -m "$(command -v python3)")" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: file-io-${{ matrix.id }}-${{ github.sha }}
+          restore-keys: file-io-${{ matrix.id }}-
+
+      - uses: ./.github/actions/set-make-job-count
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          mkdir -p build/ci-logs
+          cmake_options=()
+          if [[ '${{ runner.os }}' == macOS ]]; then
+            cmake_options+=("-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR")
+          fi
+          if [[ '${{ matrix.sanitize }}' == ON ]]; then
+            export CC=clang CXX=clang++
+          fi
+          cmake -S . -B build -G Ninja \
+            -DARCH=default -DBUILD_TESTS=ON -DENABLE_FUZZ_TEST=ON \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_SHARED_LIBS=OFF \
+            -DSANITIZE=${{ matrix.sanitize }} \
+            -DUSE_COMPILER_CACHE=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DMONERO_PARALLEL_LINK_JOBS=1 \
+            -DPython3_EXECUTABLE="$MONERO_TEST_PYTHON" -DPYTHON_EXECUTABLE="$MONERO_TEST_PYTHON" \
+            -DEXPECT_FUNCTIONAL_TESTS=${{ matrix.functional && 'ON' || 'OFF' }} \
+            "${cmake_options[@]}" \
+            2>&1 | tee build/ci-logs/configure.log
+
+      - name: Build all executables and tests
+        id: build
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ env.MAKE_JOB_COUNT }}
+        run: |
+          set -euo pipefail
+          cmake --build build --target all wallet_api 2>&1 | tee build/ci-logs/build.log
+          ctest --test-dir build --show-only | tee build/ci-logs/test-list.txt
+
+      - name: Repeat file-I/O regressions in shuffled order
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          build/tests/unit_tests/unit_tests --gtest_filter='FileIOUtils.*:FileIOUtilsRegression.*' \
+            --gtest_repeat=20 --gtest_shuffle --gtest_random_seed=10764 \
+            --gtest_output=xml:build/ci-logs/file-io.xml 2>&1 | tee build/ci-logs/file-io.log
+
+      - name: Repeat wallet and peer-list persistence tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          build/tests/unit_tests/unit_tests --gtest_filter='wallet_storage.*:wallet_keys_unlocker.*:peerlist_storage.*' \
+            --gtest_repeat=3 --gtest_shuffle --gtest_random_seed=10764 \
+            --gtest_output=xml:build/ci-logs/persistence.xml 2>&1 | tee build/ci-logs/persistence.log
+
+      - name: Run unit, crypto, hash, difficulty and block-weight suites
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 60
+        env:
+          # These two suites depend on public DNS records rather than this checkout.
+          # Local DNS parsing and AddressFromTXT tests still run.
+          GTEST_FILTER: '-DNSResolver.IPv4*:DNSResolver.IPv6*:DNSResolver.DNSSEC*:DNSResolver.GetTXTRecord:AddressFromURL.*'
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure --no-tests=error --timeout 3000 \
+            -E '^(core_tests|functional_tests_rpc)$' \
+            --output-junit "$PWD/build/ci-logs/ctest.xml" 2>&1 | tee build/ci-logs/ctest.log
+
+      - name: Replay every checked-in fuzz seed
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          for corpus in tests/data/fuzz/*; do
+            target="$(basename "$corpus")_fuzz_tests"
+            for seed in "$corpus"/*; do
+              echo "$target: $seed"
+              "build/tests/fuzz/$target" "$seed"
+            done
+          done 2>&1 | tee build/ci-logs/fuzz-seeds.log
+
+      - name: Test wallet restart, generated TLS files and peer-list persistence
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          "$MONERO_TEST_PYTHON" tests/functional_tests/file_io_regression.py \
+            --build-dir build --log-dir build/ci-file-io-logs 2>&1 | tee build/ci-logs/integration.log
+
+      - name: Run the full RPC functional suite
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.functional }}
+        timeout-minutes: 75
+        env:
+          MINING_NO_MEASUREMENT: '1'
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure --no-tests=error --timeout 4200 \
+            -R '^functional_tests_rpc$' \
+            --output-junit "$PWD/build/ci-logs/functional.xml" 2>&1 | tee build/ci-logs/functional.log
+
+      - name: Round-trip a real 4 GiB + 17 byte file
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.large_file }}
+        timeout-minutes: 20
+        # Opt in explicitly: this uses about 4 GiB of RAM and disk, once per release platform.
+        run: |
+          set -euo pipefail
+          build/tests/unit_tests/unit_tests --gtest_also_run_disabled_tests \
+            --gtest_filter='FileIOUtilsLargeFile.DISABLED_RoundTripPastFourGiB' \
+            --gtest_output=xml:build/ci-logs/large-file.xml 2>&1 | tee build/ci-logs/large-file.log
+
+      - name: Build and run core tests with reduced slow-hash iterations
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.core }}
+        timeout-minutes: 90
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ env.MAKE_JOB_COUNT }}
+        # Separate build: the normal hash vectors above must use the production iteration count.
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-core -G Ninja -DARCH=default -DBUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-DMONERO_CRYPTO_SLOW_HASH_ITER=20 \
+            -DUSE_COMPILER_CACHE=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DMONERO_PARALLEL_LINK_JOBS=1 \
+            -DPython3_EXECUTABLE="$MONERO_TEST_PYTHON" -DPYTHON_EXECUTABLE="$MONERO_TEST_PYTHON" \
+            2>&1 | tee build/ci-logs/core-configure.log
+          cmake --build build-core --target core_tests 2>&1 | tee build/ci-logs/core-build.log
+          ctest --test-dir build-core --output-on-failure --no-tests=error --timeout 3600 \
+            -R '^core_tests$' \
+            --output-junit "$PWD/build/ci-logs/core.xml" 2>&1 | tee build/ci-logs/core.log
+
+      - name: Upload test results and diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: file-io-${{ matrix.id }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            build/ci-logs/
+            build/ci-file-io-logs/
+            build/Testing/Temporary/
+            build/tests/**/*.log
+            build-core/Testing/Temporary/
+            build-core/tests/**/*.log

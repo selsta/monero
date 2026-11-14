@@ -26,10 +26,12 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <algorithm>
 #include <array>
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
 #ifndef _WIN32
+#include <fcntl.h>
 #include <sys/stat.h>
 #endif
 #include <boost/predef/other/endian.h>
@@ -38,10 +40,14 @@
 #include <boost/range/algorithm_ext/iota.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <cstdint>
+#include <cerrno>
+#include <cstring>
 #include <functional>
 #include <gtest/gtest.h>
 #include <iomanip>
 #include <iterator>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -67,6 +73,7 @@
 #include "storages/parserse_base_utils.h"
 
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
 #include <winioctl.h>
 #endif
@@ -2292,3 +2299,336 @@ TEST(FileIOUtils, SaveStringToFileRefusesFifo)
   ASSERT_TRUE(S_ISFIFO(st.st_mode));
 }
 #endif
+
+namespace
+{
+  class FileIOUtilsRegression : public testing::Test
+  {
+  protected:
+    void SetUp() override
+    {
+      boost::system::error_code ec;
+      dir = boost::filesystem::temp_directory_path(ec) / boost::filesystem::unique_path("file-io-regression-%%%%%%%%%%%%%%%%", ec);
+      ASSERT_FALSE(ec) << ec.message();
+      ASSERT_TRUE(boost::filesystem::create_directory(dir, ec));
+      ASSERT_FALSE(ec) << ec.message();
+    }
+
+    void TearDown() override
+    {
+      boost::system::error_code ec;
+      boost::filesystem::remove_all(dir, ec);
+      EXPECT_FALSE(ec) << ec.message();
+    }
+
+    static std::string binary_contents(size_t size)
+    {
+      std::string contents(size, '\0');
+      for (size_t i = 0; i < size; ++i)
+        contents[i] = static_cast<char>(i % 251);
+      return contents;
+    }
+
+    boost::filesystem::path dir;
+  };
+
+  class FileIOUtilsLargeFile : public FileIOUtilsRegression {};
+}
+
+TEST_F(FileIOUtilsRegression, StringRoundTripsBufferBoundariesAndEmptyFiles)
+{
+  const std::string file = (dir / "binary").string();
+  for (const size_t size : {0u, 1u, 16383u, 16384u, 16385u, 1048575u, 1048576u, 1048577u, 0u})
+  {
+    SCOPED_TRACE(size);
+    const std::string expected = binary_contents(size);
+    ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, expected));
+    std::string contents = "old contents";
+    ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents, expected.size()));
+    ASSERT_EQ(expected.size(), contents.size());
+    ASSERT_TRUE(expected == contents);
+  }
+}
+
+TEST_F(FileIOUtilsRegression, StreamRoundTripsMixedChunksAndReportsPosition)
+{
+  const std::string file = (dir / "stream").string();
+  const std::string expected = binary_contents(3 * 16384 + 17);
+  for (const size_t chunk_size : {1u, 7u, 16383u, 16384u, 16385u})
+  {
+    SCOPED_TRACE(chunk_size);
+    ASSERT_TRUE(epee::file_io_utils::save_stream_to_file(file, [&](std::ostream& stream)
+    {
+      if (stream.tellp() != std::streampos{0})
+        return false;
+      size_t offset = 0;
+      while (offset < expected.size())
+      {
+        const size_t count = std::min<size_t>(chunk_size, expected.size() - offset);
+        stream.write(expected.data() + offset, count);
+        offset += count;
+        if (stream.tellp() != std::streampos{static_cast<std::streamoff>(offset)})
+          return false;
+        if (offset % 3 == 0)
+        {
+          stream.flush();
+          if (stream.tellp() != std::streampos{static_cast<std::streamoff>(offset)})
+            return false;
+        }
+      }
+      return stream.good();
+    }));
+    std::string contents;
+    ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents));
+    ASSERT_TRUE(expected == contents);
+  }
+
+  ASSERT_TRUE(epee::file_io_utils::save_stream_to_file(file, [](std::ostream& stream)
+  {
+    return stream.tellp() == std::streampos{0};
+  }));
+  std::string contents = "old contents";
+  ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents, 0));
+  ASSERT_TRUE(contents.empty());
+}
+
+TEST_F(FileIOUtilsRegression, StreamFailureClosesFileAndAllowsRecovery)
+{
+  const std::string file = (dir / "failed-stream").string();
+  for (unsigned failure = 0; failure < 4; ++failure)
+  {
+    SCOPED_TRACE(failure);
+    ASSERT_FALSE(epee::file_io_utils::save_stream_to_file(file, [&](std::ostream& stream)
+    {
+      stream << binary_contents(16385);
+      switch (failure)
+      {
+        case 0: return false;
+        case 1: throw std::runtime_error("writer failure");
+        case 2: stream.setstate(std::ios::failbit); break;
+        case 3: stream.setstate(std::ios::badbit); break;
+      }
+      return true;
+    }));
+    // Reopening with share mode zero also detects leaked Windows handles.
+    ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, "recovered"));
+    std::string contents;
+    ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents));
+    ASSERT_EQ("recovered", contents);
+  }
+}
+
+TEST_F(FileIOUtilsRegression, DescriptorIsClosedAfterSuccessFailureAndException)
+{
+  const std::string file = (dir / "owned-descriptor").string();
+  for (unsigned outcome = 0; outcome < 4; ++outcome)
+  {
+    SCOPED_TRACE(outcome);
+    int descriptor = -1;
+#ifdef _WIN32
+    HANDLE handle = INVALID_HANDLE_VALUE;
+#endif
+    const bool result = epee::file_io_utils::detail::save_fd_to_file(file, [&](const int fd)
+    {
+      descriptor = fd;
+#ifdef _WIN32
+      handle = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
+#endif
+      if (outcome == 0)
+        return true;
+      if (outcome == 2)
+        errno = ENOSPC;
+      if (outcome == 3)
+        throw std::runtime_error("writer failure");
+      return false;
+    });
+    const int saved_errno = errno;
+    ASSERT_GE(descriptor, 0);
+    ASSERT_EQ(outcome == 0, result);
+    if (outcome != 0)
+      EXPECT_EQ(outcome == 2 ? ENOSPC : EIO, saved_errno);
+#ifdef _WIN32
+    DWORD flags = 0;
+    EXPECT_FALSE(GetHandleInformation(handle, &flags));
+    EXPECT_EQ(ERROR_INVALID_HANDLE, GetLastError());
+#else
+    EXPECT_EQ(-1, fcntl(descriptor, F_GETFD));
+    EXPECT_EQ(EBADF, errno);
+#endif
+    ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, "reopened"));
+  }
+}
+
+TEST_F(FileIOUtilsRegression, OpenFailuresDoNotInvokeWriters)
+{
+  for (const std::string& file : {(dir / "missing" / "file").string(), dir.string()})
+  {
+    SCOPED_TRACE(file);
+    bool called = false;
+    ASSERT_FALSE(epee::file_io_utils::save_stream_to_file(file, [&](std::ostream&)
+    {
+      called = true;
+      return true;
+    }));
+    ASSERT_FALSE(called);
+    ASSERT_FALSE(epee::file_io_utils::detail::save_fd_to_file(file, [&](int)
+    {
+      called = true;
+      return true;
+    }));
+    ASSERT_FALSE(called);
+    ASSERT_FALSE(epee::file_io_utils::save_string_to_file(file, "replacement"));
+  }
+  std::string contents = "unchanged";
+  ASSERT_FALSE(epee::file_io_utils::load_file_to_string((dir / "missing").string(), contents));
+  ASSERT_EQ("unchanged", contents);
+}
+
+TEST_F(FileIOUtilsRegression, Utf8PathsRoundTripBothWriters)
+{
+  const std::string file = dir.string() + u8"/wallet-\u00e9-\u65e5-\U0001f4b0";
+  const std::string expected = binary_contents(16385);
+  ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, expected));
+  std::string contents;
+  ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents));
+  ASSERT_TRUE(expected == contents);
+  ASSERT_TRUE(epee::file_io_utils::save_stream_to_file(file, [](std::ostream& stream)
+  {
+    stream << "shorter";
+    return stream.good();
+  }));
+  ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents));
+  ASSERT_EQ("shorter", contents);
+}
+
+#ifdef _WIN32
+TEST_F(FileIOUtilsRegression, SharingViolationDoesNotModifyFile)
+{
+  const std::string file = (dir / "locked").string();
+  ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, "original"));
+  {
+    const std::wstring wide_path = epee::string_tools::utf8_to_utf16(file);
+    const HANDLE handle = CreateFileW(wide_path.c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    ASSERT_NE(INVALID_HANDLE_VALUE, handle);
+    const epee::scope_guard close_handle([handle](){ CloseHandle(handle); });
+    ASSERT_FALSE(epee::file_io_utils::save_string_to_file(file, "replacement"));
+    bool called = false;
+    ASSERT_FALSE(epee::file_io_utils::save_stream_to_file(file, [&](std::ostream&)
+    {
+      called = true;
+      return true;
+    }));
+    ASSERT_FALSE(called);
+    std::string contents = "unchanged";
+    ASSERT_FALSE(epee::file_io_utils::load_file_to_string(file, contents));
+    ASSERT_EQ("unchanged", contents);
+  }
+  std::string contents;
+  ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents));
+  ASSERT_EQ("original", contents);
+  ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, "recovered"));
+}
+#else
+TEST_F(FileIOUtilsRegression, CreateModeAndExistingPermissionsArePreserved)
+{
+  const std::string file = (dir / "private").string();
+  ASSERT_TRUE(epee::file_io_utils::save_string_to_file(file, "original", 0600));
+  struct stat before;
+  ASSERT_EQ(0, stat(file.c_str(), &before));
+  ASSERT_EQ(0600, before.st_mode & 0777);
+  ASSERT_EQ(0, chmod(file.c_str(), 0640));
+  ASSERT_TRUE(epee::file_io_utils::save_stream_to_file(file, [](std::ostream& stream)
+  {
+    stream << "replacement";
+    return stream.good();
+  }, 0666));
+  struct stat after;
+  ASSERT_EQ(0, stat(file.c_str(), &after));
+  ASSERT_EQ(0640, after.st_mode & 0777);
+  ASSERT_EQ(before.st_ino, after.st_ino);
+  ASSERT_EQ(before.st_dev, after.st_dev);
+
+  const std::string new_file = (dir / "private-stream").string();
+  ASSERT_TRUE(epee::file_io_utils::save_stream_to_file(new_file, [](std::ostream& stream)
+  {
+    stream << "secret";
+    return stream.good();
+  }, 0600));
+  ASSERT_EQ(0, stat(new_file.c_str(), &after));
+  ASSERT_EQ(0600, after.st_mode & 0777);
+}
+
+TEST_F(FileIOUtilsRegression, AllWritersRefuseExistingAndDanglingSymlinks)
+{
+  const boost::filesystem::path victim = dir / "victim";
+  const boost::filesystem::path missing = dir / "missing";
+  const boost::filesystem::path existing_link = dir / "existing-link";
+  const boost::filesystem::path dangling_link = dir / "dangling-link";
+  ASSERT_TRUE(epee::file_io_utils::save_string_to_file(victim.string(), "original"));
+  boost::filesystem::create_symlink(victim, existing_link);
+  boost::filesystem::create_symlink(missing, dangling_link);
+  for (const auto& file : {existing_link, dangling_link})
+  {
+    SCOPED_TRACE(file.string());
+    bool called = false;
+    ASSERT_FALSE(epee::file_io_utils::save_string_to_file(file.string(), "replacement"));
+    ASSERT_FALSE(epee::file_io_utils::save_stream_to_file(file.string(), [&](std::ostream&)
+    {
+      called = true;
+      return true;
+    }));
+    ASSERT_FALSE(epee::file_io_utils::detail::save_fd_to_file(file.string(), [&](int)
+    {
+      called = true;
+      return true;
+    }));
+    ASSERT_FALSE(called);
+    ASSERT_TRUE(boost::filesystem::is_symlink(file));
+  }
+  std::string contents;
+  ASSERT_TRUE(epee::file_io_utils::load_file_to_string(victim.string(), contents));
+  ASSERT_EQ("original", contents);
+  ASSERT_FALSE(boost::filesystem::exists(missing));
+}
+#endif
+
+// Explicitly enabled by the temporary regression CI: this uses over 4 GiB of RAM and disk.
+TEST_F(FileIOUtilsLargeFile, DISABLED_RoundTripPastFourGiB)
+{
+  if (sizeof(size_t) < sizeof(uint64_t))
+    GTEST_SKIP() << "The full round trip requires a 64-bit address space";
+
+  const uint64_t file_size = (uint64_t{1} << 32) + 17;
+  const std::string file = (dir / "large-round-trip").string();
+  std::string chunk = binary_contents(1024 * 1024);
+  ASSERT_TRUE(epee::file_io_utils::save_stream_to_file(file, [&](std::ostream& stream)
+  {
+    uint64_t remaining = file_size;
+    uint64_t block_index = 0;
+    while (remaining != 0)
+    {
+      // Distinct markers also detect offsets wrapping at the 4 GiB boundary.
+      std::memcpy(&chunk[0], &block_index, sizeof(block_index));
+      const size_t count = static_cast<size_t>(std::min<uint64_t>(remaining, chunk.size()));
+      stream.write(chunk.data(), count);
+      if (!stream.good())
+        return false;
+      remaining -= count;
+      ++block_index;
+    }
+    return stream.tellp() == std::streampos{static_cast<std::streamoff>(file_size)};
+  }));
+  ASSERT_EQ(file_size, boost::filesystem::file_size(file));
+
+  std::string contents;
+  ASSERT_TRUE(epee::file_io_utils::load_file_to_string(file, contents, (std::numeric_limits<size_t>::max)()));
+  ASSERT_EQ(file_size, contents.size());
+  for (size_t offset = 0; offset < contents.size();)
+  {
+    const uint64_t block_index = offset / chunk.size();
+    std::memcpy(&chunk[0], &block_index, sizeof(block_index));
+    const size_t count = std::min<size_t>(chunk.size(), contents.size() - offset);
+    ASSERT_EQ(0, std::memcmp(contents.data() + offset, chunk.data(), count)) << "offset " << offset;
+    offset += count;
+  }
+}
